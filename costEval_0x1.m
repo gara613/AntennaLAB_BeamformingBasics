@@ -191,6 +191,12 @@ function varargout = costEval_0x1(inds,dataPath,options,varargin)
             
             I_A = (Y_AA(:,:,cont) - Y_AB(:,:,cont)* ((Y_BB(:,:,cont) + Ypt(:,:,cont))\ Y_BA(:,:,cont)) )*V_in(:,cont);
             V_B = -(Y_BB(:,:,cont)+Ypt(:,:,cont))\ Y_BA(:,:,cont)* V_in(:,cont);
+            % This calculation is unstable when using ideal switches,
+            % temporarily disable nearlySingularMatrix warning 
+            w = warning('query','last');
+            id = w.identifier;
+            warning('off',id);
+            
             I_B = -Ypt(:,:,cont)*V_B;
             Icurr(:,cont) = [I_A; I_B];
             V(N_A+1:end,cont) = V_B;
@@ -238,11 +244,12 @@ function varargout = costEval_0x1(inds,dataPath,options,varargin)
         Cost_AngDev(contInd) = sqrt((targetTheta-thetaMax).^2 + (targetPhi - phiMax).^2);
         %polDev(contInd)
     end
+    % Restore warnings!
+    warning('on',id);
 
     normCost_SL = normCost(Cost_S_L,targetS,maxSval);
     normCost_Sw_I = normCost(Cost_Sw_I,targetI,maxIval);
     normCost_AngDev = normCost(Cost_AngDev,0,maxAngDev);
-    
 	
     if strcmp(Combination,'convex') 
         varargout{1} = [normCost_SL, normCost_Sw_I, normCost_AngDev]*[0.3;0;0.7]; % Combining
@@ -251,15 +258,17 @@ function varargout = costEval_0x1(inds,dataPath,options,varargin)
     end
     
     if nargout == 2 
+        varargout{2}.worstS_L = Cost_S_L;
+        varargout{2}.AngDev = AngDev*180/pi;
         varargout{2}.SL = S_L;
         varargout{2}.freqs = freqsComm;
-        varargout{2}.AngDev = AngDev*180/pi;
         %varargout{2}.SwCurr = SwCurr;
     elseif nargout == 3      
         if nInds == 1
+            varargout{2}.worstS_L = Cost_S_L;
+            varargout{2}.AngDev = AngDev*180/pi;
             varargout{2}.SL = S_L;
             varargout{2}.freqs = freqsComm;
-            varargout{2}.AngDev = AngDev*180/pi;
             varargout{3}.Gain = maxPatternVal;
             varargout{3}.phi = phiGrid*180/pi;
             varargout{3}.theta = thetaGrid*180/pi;
