@@ -22,7 +22,7 @@ options.targetS = -15;                  % Optimization target S parameters
 options.maxIval = 1;                    % Maximum value for currents range (relative to fed port maximum current)
 options.targetI = 0;                    % Optimization target current
 options.targetTheta = 30;               % In degrees, Optimization target theta for pattern maximum
-options.targetPhi = 0;                  % In degrees, Optimization target phi for pattern maximum
+options.targetPhi = 90;                 % In degrees, Optimization target phi for pattern maximum
 options.maxAngDev = 10;                 % Maximum value for angular deviation from target (In degrees)
 options.f_min = 3.3e9;                  % Minimum frequency for S parameters range
 options.f_max = 3.8e9;                  % Maximum frequency for S parameters range
@@ -30,46 +30,45 @@ options.patFreq = 3.55;                 % Frequency sample(s) for field combinat
 
 allIndscost = costEval_0x1(inds,dataPath,options);
 
-figure
-scatter3(allIndscost(:,1),allIndscost(:,2),allIndscost(:,3),'r*');
+[bestCosts, nonDomInds] = myParetoFront(allIndscost,'plot');
 xlabel('Cost_{SL}'); ylabel('Cost_{\theta}'); zlabel('Cost_{Icurr}');
 
-F = scatteredInterpolant(allIndscost(:,1),allIndscost(:,2),allIndscost(:,3),'linear','none');
-F.Method = 'linear';
-
-sgr = linspace(min(allIndscost(:,1)),max(allIndscost(:,1)));
-ygr = linspace(min(allIndscost(:,2)),max(allIndscost(:,2)));
-[XX,YY] = meshgrid(sgr,ygr);
-ZZ = F(XX,YY);
-
-figure
-surf(XX,YY,ZZ,'LineStyle','none'); % can also be mesh 
-hold on
-plot3(allIndscost(:,1),allIndscost(:,2),allIndscost(:,3),'r*');
-xlabel('Cost_{SL}'); ylabel('Cost_{\theta}'); zlabel('Cost_{Icurr}');
+figure, plot3(allIndscost(:,1),allIndscost(:,2),allIndscost(:,3),'bo');
+hold on, plot3(bestCosts(:,1),bestCosts(:,2),bestCosts(:,3),'r*');
+xlabel('Cost_{SL}'); ylabel('Cost_{\theta}'); zlabel('Cost_{Icurr}');legend({'Data','Pareto Front'});
 
 [bestMatched, posMatched] = sort(allIndscost(:,1),1);
 [bestPointed, posPointed] = sort(allIndscost(:,2),1);   % This metric is prioritized
 [bestCurrs, posCurrents] = sort(allIndscost(:,3),1);
 
+filterPosPointing = posPointed(bestPointed==min(bestPointed));
+
+[bestCostPointing, nonDomIndsPointing] = myParetoFront(allIndscost(filterPosPointing,[1,3]),'plot');
+xlabel('Cost_{SL}'); ylabel('Cost_{Icurr}');
+
 if options.Exhaustive
     options.Exhaustive = false; 
     options.Combination = 'convex';
-	best_Inds = dec2bin(posPointed(1:50)-1,12)-'0'; % Leftmost bit corresponds to the lowest index switch
+	best_Inds = dec2bin(filterPosPointing-1,12)-'0'; % Leftmost bit corresponds to the lowest index switch
     [a, b] = costEval_0x1(best_Inds,dataPath,options);
 else
-    best_Inds = inds(pos(1:50),:);
-    [a, b] = costEval_0x1(inds(pos(1:50),:),dataPath,options);
+    best_Inds = inds(filterPosPointing,:);
+    [a, b] = costEval_0x1(best_Inds,dataPath,options);
 end
 
 [best, pos] = sort(a);
 bestInd = best_Inds(pos(1),:);
-% filteredSet = intersect(posMatched(1:50),posPointed(1:50))
+
+k = min(length(pos),6); % Retain k best individuals
+hold on, 
+plot(allIndscost(filterPosPointing(pos(1:k)),1),allIndscost(filterPosPointing(pos(1:k)),3),'g^');
+plot(allIndscost(filterPosPointing(pos(1)),1),allIndscost(filterPosPointing(pos(1)),3),'cs');
+legend({'Raw costs','Pareto Front','Best Convex','Best Ind'});
 
 magSpars_dB = 20*log10(abs(b.SL));
 figure, 
-for cont = 1:6
-    subplot(2,3,cont);
+for cont = 1:k
+    subplot(2,floor(k/2),cont);
 	plot(b.freqs,magSpars_dB(pos(cont),:,1,1), b.freqs,magSpars_dB(pos(cont),:,1,2),...
     b.freqs,magSpars_dB(pos(cont),:,2,1), b.freqs,magSpars_dB(pos(cont),:,2,2) ); 
     title(['S-parameters - ' dec2bin(posPointed(pos(cont))-1,12)]);
@@ -78,7 +77,7 @@ for cont = 1:6
 end
 
 mag_SwCurr = abs(b.SwCurr);
-PtSel = find(options.activePorts);
+[PtSel,config] = find(options.activePorts,1);  % selects from port feeding configurations
 figure,
 for cont = 1:2
     legCurrs{cont} = sprintf('I_{Pt %d}', cont);
@@ -86,12 +85,12 @@ end
 for cont = 1:12
     legCurrs{cont+2} = sprintf('I_{Sw %d}', cont);
 end
-for cont = 1:6
-    subplot(2,3,cont);
-    plot(b.freqs,squeeze(mag_SwCurr(pos(cont),PtSel,:,:))); 
+for cont = 1:k
+    subplot(2,floor(k/2),cont);
+    plot(b.freqs,squeeze(mag_SwCurr(pos(cont),config,:,:))); 
     title(['Currents Pt ', num2str(PtSel), ' - ',  dec2bin(posPointed(pos(cont))-1,12)]);
     axis([min(b.freqs), max(b.freqs), 0,0.1]); grid on;
-    xlabel('frequency'); ylabel('dB'); legend(legCurrs,'location','northWest'); 
+    xlabel('frequency'); ylabel('Current (A)'); legend(legCurrs,'location','northWest'); 
 end
 
 [aa, bb, cc] = costEval_0x1(bestInd,dataPath,options);
@@ -124,10 +123,10 @@ patternCustom(MagE.', cc.theta(:,1), cc.phi(1,:));
 % 10 better individuals for MA4AGFCP910 switches
 % port 1 fed:
     % theta = 30
-        % phi = 0: 
-        % phi = 90:  
-        % phi = 180: 
-        % phi = 270: 
+        % phi = 0:      001100001111
+        % phi = 90:     001100001100
+        % phi = 180:    001100111100
+        % phi = 270:    000100001100
 % port 2 fed:
     % theta = 30
         % phi = 0: 
